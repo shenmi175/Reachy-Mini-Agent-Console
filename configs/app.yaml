@@ -1,0 +1,13 @@
+backend:
+  host: 127.0.0.1
+  port: 8710
+
+frontend:
+  host: 127.0.0.1
+  port: 5173
+
+reachy:
+  host: 127.0.0.1
+  port: 8001
+  connection_mode: localhost_only
+  media_backend: no_media
