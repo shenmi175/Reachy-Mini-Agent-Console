@@ -8,7 +8,7 @@ import socket
 import time
 from typing import Any
 from urllib.error import HTTPError, URLError
-from urllib.request import Request, urlopen
+from urllib.request import ProxyHandler, Request, build_opener
 
 from robot.base import RobotBody
 
@@ -234,10 +234,7 @@ class ReachyDaemonBody(RobotBody):
         }
 
     def _connect_sync(self) -> None:
-        try:
-            self._request("GET", "/api/state/full")
-        except RuntimeError:
-            self._request("GET", "/api/daemon/status")
+        self._request("GET", "/api/daemon/status")
         self.connected = True
 
     def _perform_motion_sync(self, action: str) -> None:
@@ -310,7 +307,8 @@ class ReachyDaemonBody(RobotBody):
             headers={"Content-Type": "application/json"},
         )
         try:
-            with urlopen(request, timeout=2) as response:
+            opener = build_opener(ProxyHandler({}))
+            with opener.open(request, timeout=5) as response:
                 text = response.read().decode("utf-8")
         except HTTPError as exc:
             detail = exc.read().decode("utf-8", errors="replace")
@@ -318,6 +316,12 @@ class ReachyDaemonBody(RobotBody):
         except URLError as exc:
             self.connected = False
             raise RuntimeError(f"Reachy daemon request failed for {path}: {exc}") from exc
+        except TimeoutError as exc:
+            self.connected = False
+            raise RuntimeError(f"Reachy daemon request timed out for {path}: {exc}") from exc
+        except socket.timeout as exc:
+            self.connected = False
+            raise RuntimeError(f"Reachy daemon request timed out for {path}: {exc}") from exc
 
         if not text:
             return {}

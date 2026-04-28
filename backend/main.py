@@ -2,10 +2,11 @@ from __future__ import annotations
 
 import asyncio
 import json
+import socket
 from contextlib import asynccontextmanager
 from typing import Any
 from urllib.error import HTTPError, URLError
-from urllib.request import Request, urlopen
+from urllib.request import ProxyHandler, Request, build_opener
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -72,10 +73,13 @@ class AppContext:
             "?with_control_mode=true"
             "&with_head_pose=true"
             "&with_target_head_pose=true"
+            "&with_head_joints=true"
             "&with_body_yaw=true"
             "&with_target_body_yaw=true"
             "&with_antenna_positions=true"
             "&with_target_antenna_positions=true"
+            "&with_passive_joints=true"
+            "&use_pose_matrix=true"
         )
         daemon_url = f"{base_url}/api/daemon/status"
 
@@ -101,13 +105,18 @@ class AppContext:
     def _fetch_json(self, url: str) -> dict[str, Any]:
         request = Request(url, method="GET", headers={"Accept": "application/json"})
         try:
-            with urlopen(request, timeout=1) as response:
+            opener = build_opener(ProxyHandler({}))
+            with opener.open(request, timeout=3) as response:
                 text = response.read().decode("utf-8")
         except HTTPError as exc:
             detail = exc.read().decode("utf-8", errors="replace")
             raise RuntimeError(f"Reachy daemon HTTP {exc.code}: {detail}") from exc
         except URLError as exc:
             raise RuntimeError(f"Reachy daemon unavailable: {exc}") from exc
+        except TimeoutError as exc:
+            raise RuntimeError(f"Reachy daemon timed out: {exc}") from exc
+        except socket.timeout as exc:
+            raise RuntimeError(f"Reachy daemon timed out: {exc}") from exc
 
         if not text:
             return {}

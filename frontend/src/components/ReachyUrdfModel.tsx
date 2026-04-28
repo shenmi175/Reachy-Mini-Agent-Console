@@ -122,7 +122,18 @@ async function loadRobotModel() {
   cachedModelPromise = new Promise<URDFRobot>((resolve, reject) => {
     const manager = new THREE.LoadingManager();
     const loader = new URDFLoader(manager);
-    let settled = false;
+    let loadedRobot: URDFRobot | null = null;
+    let assetsLoaded = false;
+    let finished = false;
+
+    const finishIfReady = () => {
+      if (finished || !assetsLoaded || !loadedRobot) {
+        return;
+      }
+      finished = true;
+      applyRobotMaterials(loadedRobot);
+      resolve(loadedRobot);
+    };
 
     manager.setURLModifier((url) => {
       if (!url.toLowerCase().endsWith(".stl")) {
@@ -133,7 +144,8 @@ async function loadRobotModel() {
     });
 
     manager.onLoad = () => {
-      settled = true;
+      assetsLoaded = true;
+      finishIfReady();
     };
 
     manager.onError = (url) => {
@@ -143,17 +155,9 @@ async function loadRobotModel() {
     try {
       loader.load(
         "/robot-3d/reachy-mini.urdf",
-        (loadedRobot) => {
-          const finish = () => {
-            applyRobotMaterials(loadedRobot);
-            resolve(loadedRobot);
-          };
-
-          if (settled) {
-            finish();
-            return;
-          }
-          window.setTimeout(finish, 300);
+        (robotModel) => {
+          loadedRobot = robotModel;
+          finishIfReady();
         },
         undefined,
         (error) => reject(error instanceof Error ? error : new Error("Failed to load Reachy URDF")),

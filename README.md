@@ -9,6 +9,28 @@ MVP web console for debugging a Reachy Mini embodied social agent. This project 
 - Reachy Mini daemon target: `127.0.0.1:8001`
 - Do not use port `8000`; it is reserved for another service.
 
+## Ubuntu Prerequisites
+
+Install Python venv support once before using the auto-start script:
+
+```bash
+sudo apt install python3.12-venv
+```
+
+Without this package, Ubuntu's Python cannot bootstrap `pip` inside virtual environments, so dependency auto-install cannot start.
+
+The optional Reachy Mini MuJoCo daemon also builds native Python packages on Linux. Install these once if you want `./start.sh` to auto-install and launch the daemon:
+
+```bash
+sudo apt install pkg-config libcairo2-dev libgirepository1.0-dev gobject-introspection gir1.2-gtk-3.0 python3.12-dev build-essential
+```
+
+To run only the debug console in mock robot mode, skip the optional daemon:
+
+```bash
+START_REACHY_DAEMON=0 ./start.sh
+```
+
 ## Repository Layout
 
 ```text
@@ -83,6 +105,14 @@ The script starts, if needed:
 - Frontend on `127.0.0.1:5173`
 
 It does not kill existing processes. If a port is already listening, it skips that service and reuses it.
+
+On first run, the script creates local dependency environments when needed:
+
+- `backend/.venv` for the FastAPI backend
+- `frontend/node_modules` for the Vite frontend
+- `.venv-reachy-daemon` for the optional Reachy daemon, installing `reachy-mini[mujoco]`
+
+If `~/code/reachy-agent-lab/.venv/bin/reachy-mini-daemon` already exists, the script uses that existing daemon environment. If `~/code/reachy-agent-lab` is a local Reachy source checkout without a virtualenv, the script installs that checkout into `.venv-reachy-daemon` instead of using PyPI. Set `AUTO_INSTALL_DEPS=0` to disable all automatic installs.
 
 The default daemon mode is headless MuJoCo:
 
