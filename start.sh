@@ -5,7 +5,9 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BACKEND_DIR="$ROOT_DIR/backend"
 FRONTEND_DIR="$ROOT_DIR/frontend"
 REACHY_LAB_DIR="${REACHY_LAB_DIR:-$HOME/code/reachy-agent-lab}"
+REACHY_DESKTOP_APP_DIR="${REACHY_DESKTOP_APP_DIR:-$HOME/code/reachy-mini-desktop-app}"
 LOG_DIR="$ROOT_DIR/logs"
+FRONTEND_ROBOT_ASSETS_DIR="$FRONTEND_DIR/public/robot-3d"
 
 BACKEND_HOST="${BACKEND_HOST:-127.0.0.1}"
 BACKEND_PORT="${BACKEND_PORT:-8710}"
@@ -15,6 +17,8 @@ REACHY_HOST="${REACHY_HOST:-127.0.0.1}"
 REACHY_PORT="${REACHY_PORT:-8001}"
 REACHY_SIM_MODE="${REACHY_SIM_MODE:-mujoco-headless}"
 START_REACHY_DAEMON="${START_REACHY_DAEMON:-1}"
+AUTO_INSTALL_DEPS="${AUTO_INSTALL_DEPS:-1}"
+AUTO_COPY_ROBOT_ASSETS="${AUTO_COPY_ROBOT_ASSETS:-1}"
 
 STARTED_PIDS=()
 
@@ -29,12 +33,15 @@ Defaults:
 
 Environment:
   REACHY_LAB_DIR=~/code/reachy-agent-lab
+  REACHY_DESKTOP_APP_DIR=~/code/reachy-mini-desktop-app
   REACHY_SIM_MODE=mujoco-headless | mujoco-gui | mockup | none
   MUJOCO_GL=glfw | egl | osmesa
   GLFW_PLATFORM=x11
   GDK_BACKEND=x11
   QT_QPA_PLATFORM=xcb
   START_REACHY_DAEMON=0 skips daemon startup
+  AUTO_INSTALL_DEPS=0 skips automatic pip/npm install
+  AUTO_COPY_ROBOT_ASSETS=0 skips copying missing 3D assets from the desktop app clone
 
 Examples:
   ./start.sh
@@ -95,22 +102,75 @@ cleanup() {
 trap cleanup EXIT INT TERM
 
 ensure_backend_env() {
+  if [[ "$AUTO_INSTALL_DEPS" == "0" && ! -x "$BACKEND_DIR/.venv/bin/python" ]]; then
+    log "backend virtualenv missing and AUTO_INSTALL_DEPS=0"
+    return 1
+  fi
+
   if [[ ! -x "$BACKEND_DIR/.venv/bin/python" ]]; then
     log "creating backend virtualenv"
     python3 -m venv "$BACKEND_DIR/.venv"
   fi
 
-  if ! "$BACKEND_DIR/.venv/bin/python" -c "import fastapi" >/dev/null 2>&1; then
+  local requirements_hash
+  local stamp_file="$BACKEND_DIR/.venv/.requirements.sha256"
+  requirements_hash="$(sha256sum "$BACKEND_DIR/requirements.txt" | awk '{print $1}')"
+
+  if ! "$BACKEND_DIR/.venv/bin/python" -c "import fastapi" >/dev/null 2>&1 \
+    || [[ ! -f "$stamp_file" ]] \
+    || [[ "$(cat "$stamp_file")" != "$requirements_hash" ]]; then
+    if [[ "$AUTO_INSTALL_DEPS" == "0" ]]; then
+      log "backend requirements need install but AUTO_INSTALL_DEPS=0"
+      return 1
+    fi
     log "installing backend requirements"
     "$BACKEND_DIR/.venv/bin/pip" install -r "$BACKEND_DIR/requirements.txt"
+    printf '%s\n' "$requirements_hash" >"$stamp_file"
   fi
 }
 
 ensure_frontend_env() {
-  if [[ ! -d "$FRONTEND_DIR/node_modules" ]]; then
+  local stamp_file="$FRONTEND_DIR/node_modules/.package-inputs.sha256"
+  local package_hash
+  if [[ -f "$FRONTEND_DIR/package-lock.json" ]]; then
+    package_hash="$(sha256sum "$FRONTEND_DIR/package.json" "$FRONTEND_DIR/package-lock.json" | sha256sum | awk '{print $1}')"
+  else
+    package_hash="$(sha256sum "$FRONTEND_DIR/package.json" | awk '{print $1}')"
+  fi
+
+  if [[ ! -d "$FRONTEND_DIR/node_modules" ]] \
+    || [[ ! -f "$stamp_file" ]] \
+    || [[ "$(cat "$stamp_file")" != "$package_hash" ]]; then
+    if [[ "$AUTO_INSTALL_DEPS" == "0" ]]; then
+      log "frontend dependencies need install but AUTO_INSTALL_DEPS=0"
+      return 1
+    fi
     log "installing frontend dependencies"
     (cd "$FRONTEND_DIR" && npm install)
+    printf '%s\n' "$package_hash" >"$stamp_file"
   fi
+}
+
+ensure_robot_assets() {
+  if [[ -f "$FRONTEND_ROBOT_ASSETS_DIR/reachy-mini.urdf" ]]; then
+    return
+  fi
+
+  if [[ "$AUTO_COPY_ROBOT_ASSETS" == "0" ]]; then
+    log "3D assets missing and AUTO_COPY_ROBOT_ASSETS=0"
+    return
+  fi
+
+  local source_dir="$REACHY_DESKTOP_APP_DIR/src/assets/robot-3d"
+  if [[ ! -f "$source_dir/reachy-mini.urdf" ]]; then
+    log "3D assets missing; clone official app or set REACHY_DESKTOP_APP_DIR"
+    log "expected: $source_dir"
+    return
+  fi
+
+  log "copying Reachy Mini 3D assets from $source_dir"
+  mkdir -p "$FRONTEND_DIR/public"
+  cp -a "$source_dir" "$FRONTEND_ROBOT_ASSETS_DIR"
 }
 
 start_daemon() {
@@ -198,6 +258,7 @@ start_frontend() {
     return
   fi
 
+  ensure_robot_assets
   ensure_frontend_env
   mkdir -p "$LOG_DIR"
   local frontend_log="$LOG_DIR/frontend.log"
