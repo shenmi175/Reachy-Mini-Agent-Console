@@ -1,6 +1,6 @@
 import { Canvas } from "@react-three/fiber";
 import { OrbitControls } from "@react-three/drei";
-import { Box, ExternalLink, RotateCw } from "lucide-react";
+import { ExternalLink, RotateCw } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import * as THREE from "three";
 
@@ -155,14 +155,14 @@ export default function SimulationViewport({ robot, actions, daemonTarget }: Pro
           <>
             <Canvas
               camera={{ position: [-0.28, 0.35, 0.58], fov: 48 }}
-              dpr={[1, 2]}
-              shadows
+              dpr={1}
+              frameloop="demand"
               gl={{
-                antialias: true,
+                antialias: false,
                 alpha: false,
                 preserveDrawingBuffer: true,
                 powerPreference: "high-performance",
-                toneMapping: THREE.ACESFilmicToneMapping,
+                toneMapping: THREE.NoToneMapping,
                 toneMappingExposure: 1,
               }}
               className="w-full"
@@ -173,19 +173,16 @@ export default function SimulationViewport({ robot, actions, daemonTarget }: Pro
               }}
             >
               <color attach="background" args={["#070b12"]} />
-              <fog attach="fog" args={["#070b12", 0.9, 2.2]} />
-              <ambientLight intensity={0.45} />
-              <directionalLight position={[2, 4, 2]} intensity={2.1} castShadow />
-              <directionalLight position={[-2, 1.5, 1.5]} intensity={0.5} />
-              <directionalLight position={[0, 2.2, -2]} intensity={0.9} color="#6ee7f9" />
-              <gridHelper args={[1.25, 16, "#334155", "#172033"]} position={[0, -0.035, 0]} />
+              <ambientLight intensity={0.7} />
+              <directionalLight position={[2, 4, 2]} intensity={1.7} />
+              <directionalLight position={[0, 2.2, -2]} intensity={0.55} color="#6ee7f9" />
+              <gridHelper args={[1.25, 12, "#334155", "#172033"]} position={[0, -0.035, 0]} />
               <ReachyUrdfModel frame={liveFrame} onLoadStateChange={handleModelLoadState} />
               <OrbitControls
                 enablePan={false}
                 enableRotate={true}
                 enableZoom={true}
-                enableDamping={true}
-                dampingFactor={0.05}
+                enableDamping={false}
                 target={[0, 0.18, 0]}
                 minDistance={0.2}
                 maxDistance={0.8}

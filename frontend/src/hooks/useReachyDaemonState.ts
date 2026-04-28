@@ -16,6 +16,8 @@ const DEFAULT_STATE: ReachyDaemonState = {
   wsUrl: "",
 };
 
+const STATE_WS_FREQUENCY_HZ = "12";
+
 function normalizeTarget(target: string) {
   return target
     .trim()
@@ -27,7 +29,7 @@ function normalizeTarget(target: string) {
 function buildStateWsUrl(target: string) {
   const normalizedTarget = normalizeTarget(target || "127.0.0.1:8001");
   const params = new URLSearchParams({
-    frequency: "20",
+    frequency: STATE_WS_FREQUENCY_HZ,
     with_head_pose: "true",
     with_head_joints: "true",
     with_body_yaw: "true",

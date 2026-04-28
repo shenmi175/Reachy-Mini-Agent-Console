@@ -1,4 +1,4 @@
-import { useFrame } from "@react-three/fiber";
+import { useThree } from "@react-three/fiber";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 import URDFLoader, { type URDFRobot } from "urdf-loader";
@@ -57,6 +57,8 @@ const DEFAULT_HEAD_POSE = [
   0, 0, 0, 1,
 ] as const;
 
+const KEY_PRECISION = 10000;
+
 interface Props {
   frame: ReachyStateFrame | null;
   onLoadStateChange?: (state: "loading" | "ready" | "error", message?: string) => void;
@@ -76,12 +78,23 @@ function getPrimaryMaterial(material: THREE.Material | THREE.Material[]) {
   return Array.isArray(material) ? material[0] : material;
 }
 
+function roundedKey(value: number | null | undefined) {
+  if (typeof value !== "number" || Number.isNaN(value)) {
+    return "x";
+  }
+  return String(Math.round(value * KEY_PRECISION));
+}
+
+function arrayKey(values: readonly number[]) {
+  return values.map(roundedKey).join(",");
+}
+
 function applyRobotMaterials(robot: URDFRobot) {
   robot.traverse((object) => {
     if (!isMesh(object)) return;
 
-    object.castShadow = true;
-    object.receiveShadow = true;
+    object.castShadow = false;
+    object.receiveShadow = false;
 
     const sourceMaterial = getPrimaryMaterial(object.material);
     const materialName = sourceMaterial?.name?.toLowerCase() ?? "";
@@ -103,11 +116,8 @@ function applyRobotMaterials(robot: URDFRobot) {
     const isAntenna = materialName.includes("antenna") || stlName.includes("antenna");
     const isCamera = materialName.includes("arducam") || stlName.includes("arducam");
 
-    object.material = new THREE.MeshStandardMaterial({
+    object.material = new THREE.MeshLambertMaterial({
       color: isLens ? 0x05070a : isAntenna ? 0x111827 : isCamera ? 0x2f3642 : color,
-      flatShading: true,
-      roughness: isLens ? 0.22 : 0.72,
-      metalness: isAntenna || isLens ? 0.2 : 0.02,
       transparent: isLens,
       opacity: isLens ? 0.82 : 1,
     });
@@ -199,6 +209,27 @@ function jointsForFrame(frame: ReachyStateFrame | null) {
     : Array.from(DEFAULT_HEAD_JOINTS);
 }
 
+function antennasForFrame(frame: ReachyStateFrame | null) {
+  return (
+    frame?.target_antennas_position ??
+    frame?.target_antennas ??
+    frame?.antennas_position ??
+    DEFAULT_ANTENNAS
+  );
+}
+
+function poseKeyForFrame(frame: ReachyStateFrame | null, computedPassiveJoints: number[] | null) {
+  const headJoints = jointsForFrame(frame);
+  const bodyYaw = frame?.target_body_yaw ?? frame?.body_yaw ?? headJoints[0] ?? 0;
+  const passiveJoints = frame?.passive_joints ?? computedPassiveJoints ?? [];
+  return [
+    roundedKey(bodyYaw),
+    arrayKey(headJoints),
+    arrayKey(antennasForFrame(frame)),
+    arrayKey(passiveJoints),
+  ].join("|");
+}
+
 function applyPose(robot: URDFRobot, frame: ReachyStateFrame | null, computedPassiveJoints: number[] | null) {
   const headJoints = frame?.head_joints;
 
@@ -219,11 +250,7 @@ function applyPose(robot: URDFRobot, frame: ReachyStateFrame | null, computedPas
     });
   }
 
-  const antennas =
-    frame?.target_antennas_position ??
-    frame?.target_antennas ??
-    frame?.antennas_position ??
-    DEFAULT_ANTENNAS;
+  const antennas = antennasForFrame(frame);
 
   if (Array.isArray(antennas) && antennas.length >= 2) {
     setJoint(robot, "left_antenna", -antennas[1]);
@@ -236,9 +263,10 @@ function applyPose(robot: URDFRobot, frame: ReachyStateFrame | null, computedPas
 export default function ReachyUrdfModel({ frame, onLoadStateChange }: Props) {
   const [robot, setRobot] = useState<URDFRobot | null>(null);
   const [computedPassiveJoints, setComputedPassiveJoints] = useState<number[] | null>(null);
+  const invalidate = useThree((state) => state.invalidate);
   const frameRef = useRef<ReachyStateFrame | null>(frame);
   const computedPassiveRef = useRef<number[] | null>(null);
-  const lastVersionRef = useRef<number>(-1);
+  const lastPoseKeyRef = useRef<string>("");
 
   frameRef.current = frame;
   computedPassiveRef.current = computedPassiveJoints;
@@ -249,11 +277,12 @@ export default function ReachyUrdfModel({ frame, onLoadStateChange }: Props) {
       return null;
     }
     return {
-      version: frame?.dataVersion ?? 0,
+      key: `${arrayKey(jointsForFrame(frame))}|${arrayKey(poseMatrixForFrame(frame))}`,
       joints: jointsForFrame(frame),
       pose: poseMatrixForFrame(frame),
     };
   }, [frame]);
+  const poseKey = useMemo(() => poseKeyForFrame(frame, computedPassiveJoints), [frame, computedPassiveJoints]);
 
   useEffect(() => {
     if (!passiveInput) {
@@ -277,7 +306,7 @@ export default function ReachyUrdfModel({ frame, onLoadStateChange }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [passiveInput]);
+  }, [passiveInput?.key]);
 
   useEffect(() => {
     let mounted = true;
@@ -289,6 +318,7 @@ export default function ReachyUrdfModel({ frame, onLoadStateChange }: Props) {
         const clone = model.clone(true) as URDFRobot;
         applyPose(clone, frameRef.current, computedPassiveRef.current);
         setRobot(clone);
+        invalidate();
         onLoadStateChange?.("ready");
       })
       .catch((error) => {
@@ -301,19 +331,13 @@ export default function ReachyUrdfModel({ frame, onLoadStateChange }: Props) {
     };
   }, [onLoadStateChange]);
 
-  useFrame(() => {
-    if (!robot) return;
-    const currentFrame = frameRef.current;
-    const nextVersion = currentFrame?.dataVersion ?? 0;
-    if (nextVersion === lastVersionRef.current) return;
-    lastVersionRef.current = nextVersion;
-    applyPose(robot, currentFrame, computedPassiveRef.current);
-  });
-
   useLayoutEffect(() => {
     if (!robot) return;
+    if (poseKey === lastPoseKeyRef.current) return;
     applyPose(robot, frameRef.current, computedPassiveJoints);
-  }, [robot, computedPassiveJoints]);
+    lastPoseKeyRef.current = poseKey;
+    invalidate();
+  }, [robot, computedPassiveJoints, invalidate, poseKey]);
 
   if (!robot) {
     return null;

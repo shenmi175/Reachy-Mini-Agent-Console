@@ -95,6 +95,14 @@ export default function App() {
     });
   }, []);
 
+  const syncEvent = useCallback((event: AgentEvent) => {
+    setEvents((current) => appendUniqueById(current, event));
+    setAgent((current) => ({
+      ...current,
+      last_event: event,
+    }));
+  }, []);
+
   const handleSocketMessage = useCallback(
     (message: WsMessage) => {
       if (message.type === "snapshot") {
@@ -112,11 +120,7 @@ export default function App() {
       }
 
       if (message.type === "event_received") {
-        setEvents((current) => appendUniqueById(current, message.payload as unknown as AgentEvent));
-        setAgent((current) => ({
-          ...current,
-          last_event: message.payload as unknown as AgentEvent,
-        }));
+        syncEvent(message.payload as unknown as AgentEvent);
         return;
       }
 
@@ -153,7 +157,7 @@ export default function App() {
         setDebugMessages((current) => [...current, message].slice(-200));
       }
     },
-    [syncActions],
+    [syncActions, syncEvent],
   );
 
   useEffect(() => {
@@ -292,7 +296,7 @@ export default function App() {
                 onEmergencyStop={() => run(api.emergencyStop, setAgent)}
                 onConnectRobot={() => run(api.connectRobot, setRobot)}
                 onDisconnectRobot={() => run(api.disconnectRobot, setRobot)}
-                onInjectEvent={(eventType) => run(() => api.injectEvent(eventType))}
+                onInjectEvent={(eventType) => run(() => api.injectEvent(eventType), syncEvent)}
                 onMotion={(action) => run(() => api.runRobotAction(action))}
               />
               <PersonaSelector
