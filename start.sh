@@ -91,6 +91,22 @@ wait_for_port() {
   log "$name is listening on port $port"
 }
 
+http_contains() {
+  local url="$1"
+  local needle="$2"
+
+  command -v curl >/dev/null 2>&1 || return 1
+  curl -fsS --max-time 2 "$url" 2>/dev/null | grep -Fq "$needle"
+}
+
+backend_healthy() {
+  http_contains "http://$BACKEND_HOST:$BACKEND_PORT/api/health" "reachy-agent-console"
+}
+
+frontend_healthy() {
+  http_contains "http://$FRONTEND_HOST:$FRONTEND_PORT/" "Reachy Agent Console"
+}
+
 cleanup() {
   if ((${#STARTED_PIDS[@]} == 0)); then
     return
@@ -373,8 +389,13 @@ start_optional_daemon() {
 
 start_backend() {
   if is_port_listening "$BACKEND_PORT"; then
-    log "port $BACKEND_PORT is already listening; backend not started again"
-    return
+    if backend_healthy; then
+      log "backend is already healthy on port $BACKEND_PORT"
+      return
+    fi
+    log "port $BACKEND_PORT is already listening, but it does not look like this backend"
+    log "free that port or set BACKEND_PORT to a different value"
+    return 1
   fi
 
   ensure_backend_env || return 1
@@ -392,8 +413,13 @@ start_backend() {
 
 start_frontend() {
   if is_port_listening "$FRONTEND_PORT"; then
-    log "port $FRONTEND_PORT is already listening; frontend not started again"
-    return
+    if frontend_healthy; then
+      log "frontend is already healthy on port $FRONTEND_PORT"
+      return
+    fi
+    log "port $FRONTEND_PORT is already listening, but it does not look like this frontend"
+    log "free that port or set FRONTEND_PORT to a different value"
+    return 1
   fi
 
   ensure_robot_assets
@@ -423,10 +449,16 @@ status() {
     "frontend:$FRONTEND_PORT"; do
     local name="${service%%:*}"
     local port="${service##*:}"
-    if is_port_listening "$port"; then
-      printf '%-8s listening on 127.0.0.1:%s\n' "$name" "$port"
-    else
+    if ! is_port_listening "$port"; then
       printf '%-8s not listening on 127.0.0.1:%s\n' "$name" "$port"
+    elif [[ "$name" == "backend" ]] && backend_healthy; then
+      printf '%-8s healthy on 127.0.0.1:%s\n' "$name" "$port"
+    elif [[ "$name" == "frontend" ]] && frontend_healthy; then
+      printf '%-8s healthy on 127.0.0.1:%s\n' "$name" "$port"
+    elif [[ "$name" == "backend" || "$name" == "frontend" ]]; then
+      printf '%-8s listening but unhealthy on 127.0.0.1:%s\n' "$name" "$port"
+    else
+      printf '%-8s listening on 127.0.0.1:%s\n' "$name" "$port"
     fi
   done
 }

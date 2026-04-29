@@ -145,11 +145,45 @@ To start only the daemon in X11 mode:
 ./start.sh daemon-x11
 ```
 
+The `x11` and `daemon-x11` targets intentionally open the native MuJoCo viewer.
+To run the console without that desktop 3D window, stop the X11 run with
+`Ctrl-C` in the terminal that launched it and start the default headless mode:
+
+```bash
+./start.sh
+```
+
+Or start only the backend and browser frontend, reusing an already running
+daemon if one exists:
+
+```bash
+./start.sh app
+```
+
 If EGL is unavailable in headless mode, try:
 
 ```bash
 MUJOCO_GL=osmesa ./start.sh daemon
 ```
+
+## Troubleshooting
+
+Check the current service state:
+
+```bash
+./start.sh status
+```
+
+If the browser shows `404 Not Found` at `http://127.0.0.1:5173`, the port is
+usually occupied by a stale or unrelated Node/Vite process. `./start.sh status`
+will show this as:
+
+```text
+frontend listening but unhealthy on 127.0.0.1:5173
+```
+
+Stop the process that is occupying port `5173`, then rerun `./start.sh app` or
+`./start.sh`.
 
 ## API Surface
 
